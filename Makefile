@@ -1,9 +1,7 @@
 TARGET ?= /usr/local
 LIBEVENT ?= /usr/local
-LIBSIMPLEHTTP ?= /usr/local
 
-CFLAGS += -I. -I$(LIBSIMPLEHTTP)/include -I.. -I$(LIBEVENT)/include -g -Wall -O2
-LIBS = -L. -L$(LIBEVENT)/lib -L/usr/local/lib -lprotobuf-c -levent -lbuffered_socket
+CFLAGS += -I. -I$(LIBEVENT)/include -g -Wall -O2
 AR = ar
 AR_FLAGS = rc
 RANLIB = ranlib
