@@ -42,8 +42,9 @@ struct DoozerClient *new_doozer_client(struct json_object *endpoint_list)
     for (i = 0; i < json_object_array_length(endpoint_list); i++) {
         endpoint_url = (char *)json_object_get_string(json_object_array_get_idx(endpoint_list, i));
         if (!parse_endpoint(endpoint_url, strlen(endpoint_url), &address, &port)) {
-            fprintf(stderr, "ERROR: failed to parse endpoint (%s)\n", endpoint_url);
-            exit(1);
+            _DEBUG("%s: failed to parse endpoint %s\n", __FUNCTION__, endpoint_url);
+            free_doozer_client(client);
+            return NULL;
         }
         instance = new_doozer_instance(address, port);
         instance->client = client;

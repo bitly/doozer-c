@@ -1,6 +1,8 @@
 #ifndef __doozer_h
 #define __doozer_h
 
+#include "msg.pb-c.h"
+
 #define DOOZER_RECONNECT_DELAY 60
 
 enum DoozerReadState {
