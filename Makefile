@@ -1,7 +1,7 @@
 TARGET ?= /usr/local
 LIBEVENT ?= /usr/local
 
-CFLAGS += -I. -I$(LIBEVENT)/include -g -Wall -O2
+CFLAGS += -I. -I$(LIBEVENT)/include -g -Wall -O2 -DDEBUG
 AR = ar
 AR_FLAGS = rc
 RANLIB = ranlib
