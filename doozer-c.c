@@ -77,6 +77,7 @@ struct DoozerInstance *new_doozer_instance(const char *address, int port)
     instance->tag = 0;
     instance->transactions = NULL;
     instance->next = NULL;
+    time(&instance->error_ts);
     instance->conn = new_buffered_socket(address, port, 
         doozer_connectcb, doozer_closecb, 
         doozer_readcb, doozer_writecb, doozer_errorcb, 
@@ -148,6 +149,7 @@ void doozer_instance_reconnect(struct DoozerInstance *instance)
         _DEBUG("%s: instance %p reconnect in %ld secs\n", __FUNCTION__, instance, 
                DOOZER_RECONNECT_DELAY - (now - instance->error_ts));
         if ((now - instance->error_ts) >= DOOZER_RECONNECT_DELAY) {
+            time(&instance->error_ts); // reset the error timestamp
             doozer_instance_connect(instance);
         }
     }
@@ -164,7 +166,7 @@ struct DoozerInstance *doozer_get_instance(struct DoozerClient *client)
         if (i == index) {
             if (instance->conn->state == BS_CONNECTED) {
                 break;
-            } else {
+            } else if (instance->conn->state != BS_CONNECTING) {
                 _DEBUG("%s: instance %p is disconnected, reconnecting\n", __FUNCTION__, instance);
                 doozer_instance_reconnect(instance);
             }
@@ -261,10 +263,6 @@ int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transacti
     void *buf;
     size_t len;
     
-    if (client->state != DOOZER_CLIENT_CONNECTED) {
-        return RET_DOOZER_CLIENT_DISCONNECTED;
-    }
-    
     instance = doozer_get_instance(client);
     if (instance == NULL) {
         return RET_DOOZER_INSTANCE_UNAVAILABLE;
@@ -311,28 +309,29 @@ static void set_state_and_callback(struct DoozerClient *client)
     int instances_still_connecting = 0;
     int instances_connected = 0;
     
-    _DEBUG("%s: client state %d\n", __FUNCTION__, client->state);
+    _DEBUG("%s: START client->state = %d\n", __FUNCTION__, client->state);
+    
+    LL_FOREACH(client->instances, instance) {
+        if (instance->conn->state < BS_CONNECTED) {
+            instances_still_connecting++;
+        }
+        if (instance->conn->state == BS_CONNECTED) {
+            instances_connected++;
+        }
+    }
+    
+    _DEBUG("%s: %d connecting, %d connected\n", __FUNCTION__, instances_still_connecting, instances_connected);
+    
+    if (!instances_still_connecting) {
+        client->state = instances_connected ? DOOZER_CLIENT_CONNECTED : DOOZER_CLIENT_DISCONNECTED;
+    }
+    
+    _DEBUG("%s: END client->state = %d\n", __FUNCTION__, client->state);
     
     // we want to call our connect callback when we know that all
     // instances have either succeeded or failed
-    if (client->state == DOOZER_CLIENT_CONNECTING) {
-        LL_FOREACH(client->instances, instance) {
-            if (instance->conn->state < BS_CONNECTED) {
-                instances_still_connecting++;
-            }
-            if (instance->conn->state == BS_CONNECTED) {
-                instances_connected++;
-            }
-        }
-        
-        _DEBUG("%s: %d connecting, %d connected\n", __FUNCTION__, instances_still_connecting, instances_connected);
-        
-        if (!instances_still_connecting) {
-            client->state = instances_connected ? DOOZER_CLIENT_CONNECTED : DOOZER_CLIENT_DISCONNECTED;
-            if (client->connect_callback) {
-                (*client->connect_callback)(client);
-            }
-        }
+    if (client->connect_callback) {
+        (*client->connect_callback)(client);
     }
 }
 
