@@ -166,18 +166,15 @@ struct DoozerInstance *doozer_get_instance(struct DoozerClient *client)
         if (i == index) {
             if (instance->conn->state == BS_CONNECTED) {
                 break;
-            } else if (instance->conn->state != BS_CONNECTING) {
-                _DEBUG("%s: instance %p is disconnected, reconnecting\n", __FUNCTION__, instance);
-                doozer_instance_reconnect(instance);
             }
+            
+            _DEBUG("%s: instance %p is disconnected, attempting reconnect\n", __FUNCTION__, instance);
+            doozer_instance_reconnect(instance);
         }
         i++;
     }
     
-    index++;
-    if (index == client->instance_count) {
-        index = 0;
-    }
+    index = (index + 1) % client->instance_count;
     
     return instance;
 }
