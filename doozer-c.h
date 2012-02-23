@@ -19,7 +19,6 @@ enum DoozerClientState {
 
 enum DoozerReturnCode {
     RET_DOOZER_OK,
-    RET_DOOZER_CLIENT_DISCONNECTED,
     RET_DOOZER_INSTANCE_UNAVAILABLE,
 };
 

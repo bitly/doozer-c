@@ -159,13 +159,18 @@ void doozer_instance_reconnect(struct DoozerInstance *instance)
 struct DoozerInstance *doozer_get_instance(struct DoozerClient *client)
 {
     static int index = 0;
-    struct DoozerInstance *instance;
+    struct DoozerInstance *instance, *chosen_instance = NULL;
     int i = 0;
+    
+    if (!client->instance_count) {
+        return NULL;
+    }
     
     // round robin
     LL_FOREACH(client->instances, instance) {
         if (i == index) {
             if (instance->conn->state == BS_CONNECTED) {
+                chosen_instance = instance;
                 break;
             }
             
@@ -177,7 +182,7 @@ struct DoozerInstance *doozer_get_instance(struct DoozerClient *client)
     
     index = (index + 1) % client->instance_count;
     
-    return instance;
+    return chosen_instance;
 }
 
 size_t doozer_instance_write(struct DoozerInstance *instance, void *data, size_t len)
@@ -262,7 +267,9 @@ int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transacti
     size_t len;
     
     instance = doozer_get_instance(client);
-    if (instance == NULL) {
+    if (!instance) {
+        // call the callback (transaction->pb_resp == NULL)
+        (*transaction->callback)(transaction, transaction->cbarg);
         return RET_DOOZER_INSTANCE_UNAVAILABLE;
     }
     
@@ -439,6 +446,15 @@ static void doozer_writecb(struct BufferedSocket *buffsock, void *arg)
 static void doozer_errorcb(struct BufferedSocket *buffsock, void *arg)
 {
     struct DoozerInstance *instance = (struct DoozerInstance *)arg;
+    struct DoozerTransaction *transaction, *tmp_transaction;
+    
+    // flush the transactions for this instance
+    DL_FOREACH_SAFE(instance->transactions, transaction, tmp_transaction) {
+        // call the callback (transaction->pb_resp == NULL)
+        (*transaction->callback)(transaction, transaction->cbarg);
+        DL_DELETE(instance->transactions, transaction);
+        free_doozer_transaction(transaction);
+    }
     
     _DEBUG("%s: %p\n", __FUNCTION__, instance);
     
