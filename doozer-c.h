@@ -45,16 +45,16 @@ struct DoozerInstance {
 struct DoozerClient {
     struct DoozerInstance *instances;
     struct evbuffer *read_buffer;
-    int state;
     int instance_count;
-    void (*connect_callback)(struct DoozerClient *client);
+    int state;
+    void (*state_callback)(struct DoozerClient *client);
 };
 
 struct DoozerInstance *new_doozer_instance(const char *address, int port);
 void free_doozer_instance(struct DoozerInstance *doozerd);
 struct DoozerClient *new_doozer_client(struct json_object *endpoint_list);
 void free_doozer_client(struct DoozerClient *client);
-void doozer_client_connect(struct DoozerClient *client, void (*connect_callback)(struct DoozerClient *client));
+void doozer_client_connect(struct DoozerClient *client, void (*state_callback)(struct DoozerClient *client));
 int doozer_instance_connect(struct DoozerInstance *instance);
 void doozer_instance_reconnect(struct DoozerInstance *instance);
 struct DoozerInstance *doozer_get_instance(struct DoozerClient *client);

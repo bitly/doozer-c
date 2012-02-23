@@ -22,6 +22,7 @@ static void doozer_closecb(struct BufferedSocket *buffsock, void *arg);
 static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t len, void *arg);
 static void doozer_writecb(struct BufferedSocket *buffsock, void *arg);
 static void doozer_errorcb(struct BufferedSocket *buffsock, void *arg);
+static void doozer_set_client_state(struct DoozerClient *client, int new_state);
 int parse_endpoint(const char *input, size_t input_len, char **address, int *port);
 
 struct DoozerClient *new_doozer_client(struct json_object *endpoint_list)
@@ -36,7 +37,7 @@ struct DoozerClient *new_doozer_client(struct json_object *endpoint_list)
     client = malloc(sizeof(struct DoozerClient));
     client->read_buffer = evbuffer_new();
     client->instances = NULL;
-    client->connect_callback = NULL;
+    client->state_callback = NULL;
     client->instance_count = 0;
     client->state = DOOZER_CLIENT_INIT;
     for (i = 0; i < json_object_array_length(endpoint_list); i++) {
@@ -120,7 +121,7 @@ int parse_endpoint(const char *input, size_t input_len, char **address, int *por
     return 1;
 }
 
-void doozer_client_connect(struct DoozerClient *client, void (*connect_callback)(struct DoozerClient *client))
+void doozer_client_connect(struct DoozerClient *client, void (*state_callback)(struct DoozerClient *client))
 {
     struct DoozerInstance *instance;
     
@@ -129,7 +130,7 @@ void doozer_client_connect(struct DoozerClient *client, void (*connect_callback)
     }
     
     client->state = DOOZER_CLIENT_CONNECTING;
-    client->connect_callback = connect_callback;
+    client->state_callback = state_callback;
     LL_FOREACH(client->instances, instance) {
         doozer_instance_connect(instance);
     }
@@ -306,8 +307,6 @@ static void set_state_and_callback(struct DoozerClient *client)
     int instances_still_connecting = 0;
     int instances_connected = 0;
     
-    _DEBUG("%s: START client->state = %d\n", __FUNCTION__, client->state);
-    
     LL_FOREACH(client->instances, instance) {
         if (instance->conn->state < BS_CONNECTED) {
             instances_still_connecting++;
@@ -320,15 +319,24 @@ static void set_state_and_callback(struct DoozerClient *client)
     _DEBUG("%s: %d connecting, %d connected\n", __FUNCTION__, instances_still_connecting, instances_connected);
     
     if (!instances_still_connecting) {
-        client->state = instances_connected ? DOOZER_CLIENT_CONNECTED : DOOZER_CLIENT_DISCONNECTED;
+        doozer_set_client_state(client, instances_connected ? DOOZER_CLIENT_CONNECTED : DOOZER_CLIENT_DISCONNECTED);
     }
+}
+
+static void doozer_set_client_state(struct DoozerClient *client, int new_state)
+{
+    int current_state;
+    
+    _DEBUG("%s: START client->state = %d\n", __FUNCTION__, client->state);
+    
+    current_state = client->state;
+    client->state = new_state;
     
     _DEBUG("%s: END client->state = %d\n", __FUNCTION__, client->state);
     
-    // we want to call our connect callback when we know that all
-    // instances have either succeeded or failed
-    if (client->connect_callback) {
-        (*client->connect_callback)(client);
+    // we want to call our state callback only when it changes
+    if (current_state != new_state) {
+        (*client->state_callback)(client);
     }
 }
 
