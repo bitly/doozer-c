@@ -268,8 +268,10 @@ int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transacti
     
     instance = doozer_get_instance(client);
     if (!instance) {
-        // call the callback (transaction->pb_resp == NULL)
-        (*transaction->callback)(transaction, transaction->cbarg);
+        if (transaction->callback) {
+            // call the callback (transaction->pb_resp == NULL)
+            (*transaction->callback)(transaction, transaction->cbarg);
+        }
         return RET_DOOZER_INSTANCE_UNAVAILABLE;
     }
     
@@ -428,7 +430,9 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
                 _DEBUG("%s: value.len: %lu\n", __FUNCTION__, transaction->pb_resp->value.len);
             }
             
-            (*transaction->callback)(transaction, transaction->cbarg);
+            if (transaction->callback) {
+                (*transaction->callback)(transaction, transaction->cbarg);
+            }
             
             // reset read state
             current_state = DOOZER_READ_MSG_SIZE;
