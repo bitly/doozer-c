@@ -453,7 +453,6 @@ static void doozer_errorcb(struct BufferedSocket *buffsock, void *arg)
         // call the callback (transaction->pb_resp == NULL)
         (*transaction->callback)(transaction, transaction->cbarg);
         DL_DELETE(instance->transactions, transaction);
-        free_doozer_transaction(transaction);
     }
     
     _DEBUG("%s: %p\n", __FUNCTION__, instance);
