@@ -74,5 +74,7 @@ struct DoozerTransaction *doozer_get(const char *path, size_t path_len, int64_t 
     void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg);
 struct DoozerTransaction *doozer_del(const char *path, size_t path_len, int64_t rev, 
     void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg);
+struct DoozerTransaction *doozer_stat(const char *path, size_t path_len, int64_t rev, 
+    void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg);
 
 #endif

@@ -310,6 +310,13 @@ struct DoozerTransaction *doozer_del(const char *path, size_t path_len, int64_t 
         path, path_len, NULL, 0, rev, callback, cbarg);
 }
 
+struct DoozerTransaction *doozer_stat(const char *path, size_t path_len, int64_t rev, 
+    void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg)
+{
+    return new_doozer_transaction(DOOZER__REQUEST__VERB__STAT, 
+        path, path_len, NULL, 0, rev, callback, cbarg);
+}
+
 static void set_state_and_callback(struct DoozerClient *client)
 {
     struct DoozerInstance *instance;
