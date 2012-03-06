@@ -260,7 +260,48 @@ char *doozer_pack_transaction(struct DoozerTransaction *transaction, size_t *len
     return buf;
 }
 
-int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transaction)
+static void doozer_finish_transaction(struct DoozerTransaction *transaction)
+{
+    struct DoozerInstance *instance = transaction->instance;
+    
+    evtimer_del(&transaction->timeout_ev);
+
+#ifdef DEBUG
+    if (transaction->pb_resp) {
+        if (transaction->pb_resp->has_err_code) {
+            _DEBUG("%s: err_code: %d (%s)\n", __FUNCTION__, transaction->pb_resp->err_code, 
+            transaction->pb_resp->err_detail ? transaction->pb_resp->err_detail : "");
+        }
+        if (transaction->pb_resp->path) {
+            _DEBUG("%s: path: %s\n", __FUNCTION__, transaction->pb_resp->path);
+        }
+        if (transaction->pb_resp->has_rev) {
+            _DEBUG("%s: rev: %"PRIu64"\n", __FUNCTION__, transaction->pb_resp->rev);
+        }
+        if (transaction->pb_resp->has_value) {
+            _DEBUG("%s: value.len: %lu\n", __FUNCTION__, transaction->pb_resp->value.len);
+        }
+    }
+#endif
+    
+    _DEBUG("%s: removing transaction %p from deque (head = %p) - instance %p\n", 
+            __FUNCTION__, transaction, instance->transactions, instance);
+    DL_DELETE(instance->transactions, transaction);
+    
+    if (transaction->callback) {
+        (*transaction->callback)(transaction, transaction->cbarg);
+    }
+}
+
+static void doozer_transaction_timeout_ev(int sig, short what, void *arg)
+{
+    struct DoozerTransaction *transaction = (struct DoozerTransaction *)arg;
+    
+    _DEBUG("%s: transaction timeout for transaction tag %d\n", __FUNCTION__, transaction->pb_req.tag);
+    doozer_finish_transaction(transaction);
+}
+
+int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transaction, struct timeval *timeout_tv)
 {
     struct DoozerInstance *instance;
     void *buf;
@@ -274,6 +315,10 @@ int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transacti
         }
         return RET_DOOZER_INSTANCE_UNAVAILABLE;
     }
+    
+    evtimer_del(&transaction->timeout_ev);
+    evtimer_set(&transaction->timeout_ev, doozer_transaction_timeout_ev, transaction);
+    evtimer_add(&transaction->timeout_ev, timeout_tv);
     
     transaction->instance = instance;
     // generate a unique tag for this transaction
@@ -404,9 +449,9 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
         
         if ((current_state == DOOZER_READ_MSG_BODY) && (EVBUFFER_LENGTH(client->read_buffer) >= msg_size)) {
             resp = doozer__response__unpack(NULL, msg_size, (uint8_t *)EVBUFFER_DATA(client->read_buffer));
-            evbuffer_drain(client->read_buffer, msg_size);
-            
             assert(resp != NULL);
+            
+            evbuffer_drain(client->read_buffer, msg_size);
             
             // find the transaction by tag
             DL_FOREACH(instance->transactions, transaction) {
@@ -414,32 +459,10 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
                     break;
                 }
             }
-            
             assert(transaction != NULL);
-
-            _DEBUG("%s: removing transaction %p from deque (head = %p) - instance %p\n", 
-                   __FUNCTION__, transaction, instance->transactions, instance);
-            
-            DL_DELETE(instance->transactions, transaction);
             
             transaction->pb_resp = resp;
-            if (transaction->pb_resp->has_err_code) {
-                _DEBUG("%s: err_code: %d (%s)\n", __FUNCTION__, transaction->pb_resp->err_code, 
-                       transaction->pb_resp->err_detail ? transaction->pb_resp->err_detail : "");
-            }
-            if (transaction->pb_resp->path) {
-                _DEBUG("%s: path: %s\n", __FUNCTION__, transaction->pb_resp->path);
-            }
-            if (transaction->pb_resp->has_rev) {
-                _DEBUG("%s: rev: %"PRIu64"\n", __FUNCTION__, transaction->pb_resp->rev);
-            }
-            if (transaction->pb_resp->has_value) {
-                _DEBUG("%s: value.len: %lu\n", __FUNCTION__, transaction->pb_resp->value.len);
-            }
-            
-            if (transaction->callback) {
-                (*transaction->callback)(transaction, transaction->cbarg);
-            }
+            doozer_finish_transaction(transaction);
             
             // reset read state
             current_state = DOOZER_READ_MSG_SIZE;

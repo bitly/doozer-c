@@ -3,6 +3,7 @@
 
 #include <inttypes.h>
 #include <time.h>
+#include <event.h>
 #include "msg.pb-c.h"
 
 #define DOOZER_RECONNECT_DELAY 60
@@ -30,6 +31,7 @@ struct DoozerTransaction {
     Doozer__Response *pb_resp;
     void (*callback)(struct DoozerTransaction *transaction, void *arg);
     void *cbarg;
+    struct event timeout_ev;
     struct DoozerTransaction *prev;
     struct DoozerTransaction *next;
 };
@@ -66,7 +68,7 @@ struct DoozerTransaction *new_doozer_transaction(int verb,
     void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg);
 void free_doozer_transaction(struct DoozerTransaction *transaction);
 char *doozer_pack_transaction(struct DoozerTransaction *transaction, size_t *len);
-int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transaction);
+int doozer_send(struct DoozerClient *client, struct DoozerTransaction *transaction, struct timeval *timeout_tv);
 struct DoozerTransaction *doozer_set(const char *path, size_t path_len, 
     uint8_t *value, size_t value_len, int64_t rev, 
     void (*callback)(struct DoozerTransaction *transaction, void *arg), void *cbarg);
