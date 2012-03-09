@@ -151,7 +151,9 @@ void doozer_instance_disconnect(struct DoozerInstance *instance)
     DL_FOREACH_SAFE(instance->transactions, transaction, tmp_transaction) {
         doozer_finish_transaction(transaction);
     }
-    buffered_socket_close(instance->conn);
+    if (instance->conn->state != BS_DISCONNECTED) {
+        buffered_socket_close(instance->conn);
+    }
     evbuffer_drain(instance->read_buffer, EVBUFFER_LENGTH(instance->read_buffer));
 }
 
