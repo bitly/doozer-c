@@ -7,7 +7,6 @@
 #include "msg.pb-c.h"
 
 #define DOOZER_RECONNECT_DELAY 60
-#define VERSION 0.1
 
 enum DoozerReadState {
     DOOZER_READ_MSG_SIZE, 

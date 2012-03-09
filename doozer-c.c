@@ -11,6 +11,8 @@
 #include "msg.pb-c.h"
 #include "doozer-c.h"
 
+#define VERSION 0.1
+
 #ifdef DEBUG
 #define _DEBUG(...) fprintf(stdout, __VA_ARGS__)
 #else
