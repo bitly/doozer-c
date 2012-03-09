@@ -23,7 +23,8 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
 static void doozer_writecb(struct BufferedSocket *buffsock, void *arg);
 static void doozer_errorcb(struct BufferedSocket *buffsock, void *arg);
 static void doozer_set_client_state(struct DoozerClient *client, int new_state);
-int parse_endpoint(const char *input, size_t input_len, char **address, int *port);
+static void doozer_finish_transaction(struct DoozerTransaction *transaction);
+static int parse_endpoint(const char *input, size_t input_len, char **address, int *port);
 
 struct DoozerClient *new_doozer_client(struct json_object *endpoint_list)
 {
@@ -35,7 +36,6 @@ struct DoozerClient *new_doozer_client(struct json_object *endpoint_list)
     int i;
     
     client = malloc(sizeof(struct DoozerClient));
-    client->read_buffer = evbuffer_new();
     client->instances = NULL;
     client->state_callback = NULL;
     client->instance_count = 0;
@@ -65,7 +65,6 @@ void free_doozer_client(struct DoozerClient *client)
         LL_FOREACH_SAFE(client->instances, instance, tmp) {
             free_doozer_instance(instance);
         }
-        evbuffer_free(client->read_buffer);
         free(client);
     }
 }
@@ -75,6 +74,8 @@ struct DoozerInstance *new_doozer_instance(const char *address, int port)
     struct DoozerInstance *instance;
     
     instance = malloc(sizeof(struct DoozerInstance));
+    instance->read_buffer = evbuffer_new();
+    instance->read_state = DOOZER_READ_MSG_SIZE;
     instance->tag = 0;
     instance->transactions = NULL;
     instance->next = NULL;
@@ -87,15 +88,16 @@ struct DoozerInstance *new_doozer_instance(const char *address, int port)
     return instance;
 }
 
-void free_doozer_instance(struct DoozerInstance *doozerd)
+void free_doozer_instance(struct DoozerInstance *instance)
 {
-    if (doozerd) {
-        free_buffered_socket(doozerd->conn);
-        free(doozerd);
+    if (instance) {
+        free_buffered_socket(instance->conn);
+        evbuffer_free(instance->read_buffer);
+        free(instance);
     }
 }
 
-int parse_endpoint(const char *input, size_t input_len, char **address, int *port)
+static int parse_endpoint(const char *input, size_t input_len, char **address, int *port)
 {
     // parse from <address>:<port>
     char *tmp = NULL;
@@ -139,6 +141,18 @@ void doozer_client_connect(struct DoozerClient *client, void (*state_callback)(s
 int doozer_instance_connect(struct DoozerInstance *instance)
 {
     return buffered_socket_connect(instance->conn);
+}
+
+void doozer_instance_disconnect(struct DoozerInstance *instance)
+{
+    struct DoozerTransaction *transaction, *tmp_transaction;
+    
+    // flush the transactions for this instance
+    DL_FOREACH_SAFE(instance->transactions, transaction, tmp_transaction) {
+        doozer_finish_transaction(transaction);
+    }
+    buffered_socket_close(instance->conn);
+    evbuffer_drain(instance->read_buffer, EVBUFFER_LENGTH(instance->read_buffer));
 }
 
 void doozer_instance_reconnect(struct DoozerInstance *instance)
@@ -408,6 +422,7 @@ static void doozer_connectcb(struct BufferedSocket *buffsock, void *arg)
     
     _DEBUG("%s: %p\n", __FUNCTION__, instance);
     
+    instance->read_state = DOOZER_READ_MSG_SIZE;
     set_state_and_callback(client);
 }
 
@@ -418,40 +433,44 @@ static void doozer_closecb(struct BufferedSocket *buffsock, void *arg)
     
     _DEBUG("%s: %p\n", __FUNCTION__, instance);
     
+    doozer_instance_disconnect(instance);
+    time(&instance->error_ts);
     set_state_and_callback(client);
 }
 
 static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t len, void *arg)
 {
     struct DoozerInstance *instance = (struct DoozerInstance *)arg;
-    struct DoozerClient *client = instance->client;
     Doozer__Response *resp;
     struct DoozerTransaction *transaction;
-    static int current_state = DOOZER_READ_MSG_SIZE;
     static size_t msg_size;
     uint32_t msg_size_be;
     
     if (len) {
-        evbuffer_add(client->read_buffer, data, len);
+        evbuffer_add(instance->read_buffer, data, len);
     }
     
-    while (EVBUFFER_LENGTH(client->read_buffer) >= 4) {
-        _DEBUG("%s: %lu bytes read (in buffer %lu)\n", __FUNCTION__, len, EVBUFFER_LENGTH(client->read_buffer));
+    while (EVBUFFER_LENGTH(instance->read_buffer) >= 4) {
+        _DEBUG("%s: %lu bytes read (in buffer %lu)\n", __FUNCTION__, len, EVBUFFER_LENGTH(instance->read_buffer));
         
-        if ((current_state == DOOZER_READ_MSG_SIZE) && (EVBUFFER_LENGTH(client->read_buffer) >= 4)) {
-            memcpy(&msg_size_be, EVBUFFER_DATA(client->read_buffer), 4);
-            evbuffer_drain(client->read_buffer, 4);
+        if ((instance->read_state == DOOZER_READ_MSG_SIZE) && (EVBUFFER_LENGTH(instance->read_buffer) >= 4)) {
+            memcpy(&msg_size_be, EVBUFFER_DATA(instance->read_buffer), 4);
+            evbuffer_drain(instance->read_buffer, 4);
             // convert message length header from big-endian 
             msg_size = ntohl(msg_size_be);
             _DEBUG("%s: msg_size = %lu bytes \n", __FUNCTION__, msg_size);
-            current_state = DOOZER_READ_MSG_BODY;
+            instance->read_state = DOOZER_READ_MSG_BODY;
         }
         
-        if ((current_state == DOOZER_READ_MSG_BODY) && (EVBUFFER_LENGTH(client->read_buffer) >= msg_size)) {
-            resp = doozer__response__unpack(NULL, msg_size, (uint8_t *)EVBUFFER_DATA(client->read_buffer));
-            assert(resp != NULL);
+        if ((instance->read_state == DOOZER_READ_MSG_BODY) && (EVBUFFER_LENGTH(instance->read_buffer) >= msg_size)) {
+            resp = doozer__response__unpack(NULL, msg_size, (uint8_t *)EVBUFFER_DATA(instance->read_buffer));
+            if (!resp) {
+                doozer_instance_disconnect(instance);
+                time(&instance->error_ts);
+                return;
+            }
             
-            evbuffer_drain(client->read_buffer, msg_size);
+            evbuffer_drain(instance->read_buffer, msg_size);
             
             // find the transaction by tag
             DL_FOREACH(instance->transactions, transaction) {
@@ -459,13 +478,17 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
                     break;
                 }
             }
-            assert(transaction != NULL);
+            if (!transaction) {
+                doozer_instance_disconnect(instance);
+                time(&instance->error_ts);
+                return;
+            }
             
             transaction->pb_resp = resp;
             doozer_finish_transaction(transaction);
             
             // reset read state
-            current_state = DOOZER_READ_MSG_SIZE;
+            instance->read_state = DOOZER_READ_MSG_SIZE;
         }
     }
 }
@@ -480,16 +503,9 @@ static void doozer_writecb(struct BufferedSocket *buffsock, void *arg)
 static void doozer_errorcb(struct BufferedSocket *buffsock, void *arg)
 {
     struct DoozerInstance *instance = (struct DoozerInstance *)arg;
-    struct DoozerTransaction *transaction, *tmp_transaction;
-    
-    // flush the transactions for this instance
-    DL_FOREACH_SAFE(instance->transactions, transaction, tmp_transaction) {
-        // call the callback (transaction->pb_resp == NULL)
-        (*transaction->callback)(transaction, transaction->cbarg);
-        DL_DELETE(instance->transactions, transaction);
-    }
     
     _DEBUG("%s: %p\n", __FUNCTION__, instance);
     
+    doozer_instance_disconnect(instance);
     time(&instance->error_ts);
 }
