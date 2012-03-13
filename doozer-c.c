@@ -11,7 +11,7 @@
 #include "msg.pb-c.h"
 #include "doozer-c.h"
 
-#define VERSION 0.1
+#define VERSION 0.2
 
 #ifdef DEBUG
 #define _DEBUG(...) fprintf(stdout, __VA_ARGS__)
@@ -493,6 +493,8 @@ static void doozer_readcb(struct BufferedSocket *buffsock, uint8_t *data, size_t
             
             // reset read state
             instance->read_state = DOOZER_READ_MSG_SIZE;
+        } else {
+            break;
         }
     }
 }
