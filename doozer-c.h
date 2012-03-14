@@ -39,7 +39,6 @@ struct DoozerTransaction {
 struct DoozerInstance {
     struct DoozerClient *client;
     struct BufferedSocket *conn;
-    struct evbuffer *read_buffer;
     int read_state;
     struct DoozerTransaction *transactions; // deque
     uint32_t tag;
