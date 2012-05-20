@@ -7,8 +7,8 @@ async [doozerd](http://github.com/ha/doozerd) client library in C based on [buff
 
 `doozer-c` enables asynchronous communication with `doozerd` via a clean, simple, API.
 
-it currently supports only basic `GET` and `PUT` verbs for reading and writing data and 
-handles communication and reconnection to multiple `doozerd` instances participating in a cluster.
+it currently supports `SET`, `GET`, `DEL` and `STAT` verbs and handles communication and reconnection 
+to multiple `doozerd` instances participating in a cluster.
 
 dependencies
 ============
